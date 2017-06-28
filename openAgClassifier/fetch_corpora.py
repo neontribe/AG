@@ -1,2 +1,5 @@
 import nltk
-nltk.download('all-corpora')
+
+nltk.download('punkt')
+nltk.download('stopwords')
+nltk.download('wordnet')
