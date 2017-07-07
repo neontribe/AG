@@ -8,8 +8,7 @@ RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get -y install git vim htop nginx gettext && \
     git clone https://github.com/OpenDataServices/cove.git /opt/cove && \
-    git fetch && git -C /opt/cove checkout 722-upload-management && \
-    pip3 install cython && \
+    git fetch && git -C /opt/cove checkout master && \
     pip3 install -r requirements_iati.txt && \
     mkdir -p media && \
    echo "#!/bin/bash\n\
