@@ -16,18 +16,17 @@ class Classifier extends OagAbstractService {
     $uri = $this->getUri();
 
     $json = array(
-      'matches' => array(
+      'success' => true,
+      'duration' => 4.584875984758,
+      'data' => array(
         array(
-          'key' => 'FARM_ANIMAL_GENERIC_1',
-          'description' => 'Beef cattle',
-          'weight' => 0.9598696899,
-        ),
-        array(
-          'key' => 'FARM_ANIMAL_GENERIC_2',
-          'description' => 'Dairy cattle',
-          'weight' => 0.3784748574,
-        ),
-      ),
+          'XM-DAC-1234-Project1' => array(
+            'code' => 'c_541',
+            'confidence' => 0.98738467746633,
+            'decription' => 'apples'
+          )
+        )
+      )
     );
 
     return $json;
