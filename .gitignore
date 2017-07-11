@@ -6,3 +6,4 @@ geocoder/data/project-data.json
 behat/vendor
 behat/bin
 /oagtoolbox/nbproject/private/
+oagtoolbox/bin/.web-server-pid
