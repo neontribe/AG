@@ -4,15 +4,11 @@ namespace OagBundle\Service;
 
 class Geocoder extends OagAbstractService {
 
-  public function autocodeUri($sometext) {
-    return $this->autocodeText();
+  public function processUri($sometext) {
+    return $this->processString();
   }
 
-  public function autocodeXml($sometext) {
-    return $this->autocodeText();
-  }
-
-  public function autocodeText($sometext) {
+  public function processString($sometext) {
     $uri = $this->getUri();
 
     $json = array(

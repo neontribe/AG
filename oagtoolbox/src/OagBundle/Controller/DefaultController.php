@@ -4,41 +4,173 @@ namespace OagBundle\Controller;
 
 use Symfony\Bundle\FrameworkBundle\Controller\Controller;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
-
+use Sensio\Bundle\FrameworkExtraBundle\Configuration\Template;
 use OagBundle\Service\Cove;
 use OagBundle\Service\Geocoder;
 use OagBundle\Service\Classifier;
+use Symfony\Component\HttpFoundation\Request;
+use OagBundle\Entity\OagFile;
+use OagBundle\Form\OagFileType;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 
 class DefaultController extends Controller
  {
 
   /**
-   * @Route("/")
+   * @Route("/", name="app_index")
+   * @Template
    */
   public function indexAction() {
-    return $this->render(
-        'OagBundle:Default:index.html.twig', array(
-        'json' => 'Some JSON',
-        'uri' => 'URI',
-        )
+
+    // TODO - Can we amalgamate these two?
+    $em = $this->getDoctrine()->getManager();
+    $repository = $this->getDoctrine()->getRepository(OagFile::class);
+
+    $files = array();
+    $oagfiles = $repository->findAll();
+    $uploadDir = $this->getParameter('oagfiles_directory');
+    foreach ($oagfiles as $oagfile) {
+      $path = $uploadDir . '/' . $oagfile->getPath();
+      if (!file_exists($path)) {
+        $em->remove($oagfile);
+      }
+      else {
+        $data = array();
+
+        $data['file'] = $oagfile->getPath();
+
+        $xmldir = $this->getParameter('oagxml_directory');
+        if (!is_dir($xmldir)) {
+          mkdir($xmldir, 0755, true);
+        }
+        $filename = $oagfile->XMLFileName();
+        $xmlfile = $xmldir . '/' . $oagfile->getPath();
+        if (file_exists($xmlfile)) {
+          $data['xml'] = $xmlfile;
+        }
+
+        $files[$oagfile->getId()] = $data;
+      }
+    }
+    $em->flush();
+
+
+    return array(
+      'json' => 'Some JSON',
+      'status' => 'URI',
+      'files' => $files,
     );
   }
 
   /**
-   * @Route("/cove/")
+   * @Route("/upload", name="oagfile_upload")
+   * @Template
    */
-  public function coveAction() {
-    $uri = $this->container->getParameter("oag")['cove']['uri'];
+  public function uploadAction(Request $request) {
 
+    $em = $this->getDoctrine()->getManager();
+    $oagfile = new OagFile();
+    $form = $this->createForm(OagFileType::class, $oagfile);
+
+    if ($request) {
+      $form->handleRequest($request);
+
+      if ($form->isSubmitted() && $form->isValid()) {
+        $file = $oagfile->getPath();
+
+        $filename = $file->getClientOriginalName();
+
+        $file->move(
+          $this->getParameter('oagfiles_directory'), $filename
+        );
+
+        $oagfile->setPath($filename);
+        $em->persist($oagfile);
+        $em->flush();
+
+        return $this->redirect($this->generateUrl('app_index'));
+      }
+    }
+
+    return array(
+      'form' => $form->createView(),
+    );
+  }
+
+  /**
+   * @Route("/download/{fileid}", name="download_file", requirements={"fileid": "\d+"})
+   */
+  public function downloadAction($fileid) {
+    $repository = $this->getDoctrine()->getRepository(OagFile::class);
+    $oagfile = $repository->find($fileid);
+    if (!$oagfile) {
+      // TODO throw 404
+      throw new \RuntimeException('OAG file not found: ' . $fileid);
+    }
+
+    $xmldir = $this->getParameter('oagxml_directory');
+    if (!is_dir($xmldir)) {
+      mkdir($xmldir, 0755, true);
+    }
+    $xmlfile = $xmldir . '/' . $oagfile->XMLFileName();
+
+    $response = new BinaryFileResponse($xmlfile);
+    $response->setContentDisposition(ResponseHeaderBag::DISPOSITION_ATTACHMENT, $oagfile->XMLFileName());
+    $response->headers->set('Content-Type', 'text/xml');
+
+    return $response;
+  }
+
+  /**
+   * @Route("/cove/{fileid}", name="app_cove", requirements={"fileid": "\d+"})
+   * @Template
+   */
+  public function coveAction($fileid) {
+    $messages = [];
     $cove = $this->get(Cove::class);
-    $json = $cove->autocodeText('somexml');
+
+    $avaiable = false;
+    if ($cove->isAvailable()) {
+      $messages[] = 'CoVE is avaialable';
+    }
+    else {
+      $messages[] = 'CoVE is down, returning fixture data.';
+    }
+
+    $repository = $this->getDoctrine()->getRepository(OagFile::class);
+    $oagfile = $repository->find($fileid);
+    if (!$oagfile) {
+      // TODO throw 404
+      throw new \RuntimeException('OAG file not found: ' . $fileid);
+    }
+    // TODO - for bigger files we might need send as Uri
+    $path = $this->getParameter('oagfiles_directory') . '/' . $oagfile->getPath();
+    $contents = file_get_contents($path);
+    $json = $cove->processString($contents);
+
+    $xml = $json['xml'];
+    $xmldir = $this->getParameter('oagxml_directory');
+    if (!is_dir($xmldir)) {
+      mkdir($xmldir, 0755, true);
+    }
+    $filename = $oagfile->XMLFileName();
+    $xmlfile = $xmldir . '/' . $oagfile->getPath();
+    file_put_contents($xmlfile, $xml);
+
+    $err = $json['err'];
+    $status = $json['status'];
 
     $pretty_json = json_encode($json, JSON_PRETTY_PRINT);
     return $this->render(
-        'OagBundle:Cove:index.html.twig', array(
-        'json' => $pretty_json,
-        'uri' => $uri,
-        )
+        'OagBundle:Default:cove.html.twig', array(
+        'messages' => $messages,
+        'available' => $avaiable,
+        'xml' => $xmlfile,
+        'err' => $err,
+        'status' => $status,
+        'id' => $oagfile->getId(),
+      )
     );
   }
 
@@ -48,12 +180,12 @@ class DefaultController extends Controller
   public function geocoderAction() {
     $uri = $this->container->getParameter("oag")['geocoder']['uri'];
 
-    $autocoder = $this->get(Geocoder::class);
-    $json = $autocoder->autocodeText('somexml');
+    $geocoder = $this->get(Geocoder::class);
+    $json = $geocoder->processString('somexml');
 
     $pretty_json = json_encode($json, JSON_PRETTY_PRINT);
     return $this->render(
-        'OagBundle:Geocoder:index.html.twig', array(
+        'OagBundle:Default:geocoder.html.twig', array(
         'json' => $pretty_json,
         'uri' => $uri,
         )
@@ -68,11 +200,11 @@ class DefaultController extends Controller
     $uri = $this->container->getParameter("oag")['classifier']['uri'];
 
     $classifier = $this->get(Classifier::class);
-    $json = $classifier->autocodeText('somexml');
+    $json = $classifier->processString('somexml');
 
     $pretty_json = json_encode($json, JSON_PRETTY_PRINT);
     return $this->render(
-        'OagBundle:Classifier:index.html.twig', array(
+        'OagBundle:Default:classifier.html.twig', array(
         'json' => $pretty_json,
         'uri' => $uri,
         )
