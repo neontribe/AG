@@ -15,7 +15,11 @@
             {% for id, file in files %}
             <tr>
                 <td>{{ file['file'] }}</td>
-                <td><a href="{{ path('app_cove', { 'fileid': id } ) }}">CoVE</a></td>
+                <td>
+                    {% for modifier in file['modifiers'] %}
+                        <a href="{{ path(modifier['linkAttribute'], { 'fileid': id }) }}">{{ modifier['linkName'] }}</a>
+                    {% endfor %}
+                </td>
                 <td>
                     {% if file['xml'] is defined %}
                         <a href="{{ path('download_file', { 'fileid': id }) }}">XML</a>

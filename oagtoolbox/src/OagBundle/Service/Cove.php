@@ -79,7 +79,8 @@ class Cove extends OagAbstractService {
     // https://symfony.com/doc/current/best_practices/web-assets.html
     $json = array(
       'xml' => '',
-      'errors' => array(
+      'status' => 1,
+      'err' => array(
         'err1',
         'err2',
         'err3',

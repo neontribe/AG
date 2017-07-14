@@ -38,13 +38,34 @@ class DefaultController extends Controller
       else {
         $data = array();
 
-        $data['file'] = $oagfile->getPath();
+        $data['file'] = $oagfile->getOriginal();
+        $data['modifiers'] = [];
+
+        switch(pathinfo($oagfile->getPath(), PATHINFO_EXTENSION)) {
+          /* this is a bit messy since i'm not sure how to access path() helper outside a template
+            i'd like to build the uri for each modifier here and not have to pass data through */
+          case 'xml':
+            $data['modifiers'] = array_merge($data['modifiers'], array(array(
+              'linkAttribute' => 'app_cove',
+              'linkName' => 'CoVe',
+            ), array(
+              'linkAttribute' => 'app_classifier',
+              'linkName' => 'Classifier',
+            )));
+            break; 
+          case 'pdf':
+            $data['modifiers'] = array_merge($data['modifiers'], array(array(
+              'linkAttribute' => 'app_classifier',
+              'linkName' => 'Classifier',
+            )));
+            break;
+        }
 
         $xmldir = $this->getParameter('oagxml_directory');
         if (!is_dir($xmldir)) {
           mkdir($xmldir, 0755, true);
         }
-        $filename = $oagfile->XMLFileName();
+        $filename = $oagfile->getPath();
         $xmlfile = $xmldir . '/' . $oagfile->getPath();
         if (file_exists($xmlfile)) {
           $data['xml'] = $xmlfile;
@@ -78,14 +99,18 @@ class DefaultController extends Controller
 
       if ($form->isSubmitted() && $form->isValid()) {
         $file = $oagfile->getPath();
+        $oagfile->setOriginal($file->getClientOriginalName());
 
-        $filename = $file->getClientOriginalName();
+        $fileDirectory = $this->getParameter('oagfiles_directory');
+        $ext = $file->guessExtension();
+        do {
+          $filename = md5(uniqid()).'.'.$ext;
+        } while (file_exists($fileDirectory . '/' .$filename));
 
-        $file->move(
-          $this->getParameter('oagfiles_directory'), $filename
-        );
+        $file->move($fileDirectory, $filename);
 
         $oagfile->setPath($filename);
+
         $em->persist($oagfile);
         $em->flush();
 
@@ -113,11 +138,11 @@ class DefaultController extends Controller
     if (!is_dir($xmldir)) {
       mkdir($xmldir, 0755, true);
     }
-    $xmlfile = $xmldir . '/' . $oagfile->XMLFileName();
+    $xmlfile = $xmldir . '/' . $oagfile->getPath();
 
     $response = new BinaryFileResponse($xmlfile);
-    $response->setContentDisposition(ResponseHeaderBag::DISPOSITION_ATTACHMENT, $oagfile->XMLFileName());
-    $response->headers->set('Content-Type', 'text/xml');
+    $response->setContentDisposition(ResponseHeaderBag::DISPOSITION_ATTACHMENT, $oagfile->getPath());
+    $response->headers->set('Content-Type', mime_content_type($oag->getPath()));
 
     return $response;
   }
@@ -154,7 +179,7 @@ class DefaultController extends Controller
     if (!is_dir($xmldir)) {
       mkdir($xmldir, 0755, true);
     }
-    $filename = $oagfile->XMLFileName();
+    $filename = $oagfile->getPath();
     $xmlfile = $xmldir . '/' . $oagfile->getPath();
     file_put_contents($xmlfile, $xml);
 
@@ -194,15 +219,32 @@ class DefaultController extends Controller
 
 
   /**
-   * @Route("/classifier/")
+   * @Route("/classifier/{fileid}", name="app_classifier", requirements={"fileid": "\d+"})
    */
-  public function classifierAction() {
+  public function classifierAction($fileid) {
+    /* 
+      Read file in
+      POST it to the classifier
+      Dump the result
+      */
     $uri = $this->container->getParameter("oag")['classifier']['uri'];
 
     $classifier = $this->get(Classifier::class);
-    $json = $classifier->processString('somexml');
 
-    $pretty_json = json_encode($json, JSON_PRETTY_PRINT);
+    // TODO move file retrieval into a new service, throw specialized exception which can be caught 
+    $repository = $this->getDoctrine()->getRepository(OagFile::class);
+    $oagfile = $repository->find($fileid);
+    if (!$oagfile) {
+      // TODO throw 404
+      throw new \RuntimeException('OAG file not found: ' . $fileid);
+    }
+    // TODO - for bigger files we might need send as Uri
+    $path = $this->getParameter('oagfiles_directory') . '/' . $oagfile->getPath();
+    $contents = file_get_contents($path);
+
+    $classifierPayload = $classifier->processString($contents);
+
+    $pretty_json = json_encode($classifierPayload, JSON_PRETTY_PRINT);
     return $this->render(
         'OagBundle:Default:classifier.html.twig', array(
         'json' => $pretty_json,

@@ -28,6 +28,12 @@ class OagFile
      */
     private $path;
 
+    /**
+     * @var string
+     *
+     * @ORM\Column(name="original", type="string", length=1024, unique=true)
+     */
+    private $original;
 
     /**
      * Get id
@@ -37,6 +43,30 @@ class OagFile
     public function getId()
     {
         return $this->id;
+    }
+
+    /**
+     * Get original filename
+     *
+     * @return string
+     */
+    public function getOriginal()
+    {
+        return $this->original;
+    }
+
+    /**
+     * Set original filename
+     *
+     * @param string $original
+     *
+     * @return OagFile
+     */
+    public function setOriginal($original)
+    {
+        $this->original = $original;
+
+        return $this;
     }
 
     /**
@@ -62,15 +92,4 @@ class OagFile
     {
         return $this->path;
     }
-
-  public function XMLFileName() {
-    $filename = $this->getPath();
-    $ext = pathinfo($filename, PATHINFO_EXTENSION);
-    if ($ext != 'xml') {
-      $filename = $filename . '.xml';
-    }
-    return $filename;
-  }
-
 }
-
