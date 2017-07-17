@@ -1,0 +1,43 @@
+{# This inherrites from /app/Resources/views/base.html.twig #}
+{% extends 'base.html.twig' %}
+
+{% block title %}Tool POCs{% endblock %}
+
+{% block h1 %}Page Title{% endblock %}
+
+{% block body %}
+
+    {{ form_start(form) }}
+    <table border="1">
+        <tr>
+            <th>File</th><th>Process with ...</th><th>Download ...</th><th>Delete</th>
+        </tr>
+        {% for id, file in files %}
+            <tr>
+                <td>{{ file['file'] }}</td>
+                <td><a href="{{ path('app_cove', { 'fileid': id } ) }}">CoVE</a></td>
+                <td>
+                    {% if file['xml'] is defined %}
+                        <a href="{{ path('download_file', { 'fileid': id }) }}">XML</a>
+                    {% endif %}
+                </td>
+                {# TODO I guess there is a sy3 way of doping this using form builder #}
+                <td>
+                    {{ form_widget(form.delete_list[loop.index - 1]) }}
+                </td>
+            </tr>
+        {% endfor %}
+        <tr>
+            <td>&nbsp;</td>
+            <td>&nbsp;</td>
+            <td>&nbsp;</td>
+            <td>
+                <div>
+                    <button type="submit">Delete</button>
+                </div>
+            </td>
+        </tr>
+</table>
+{{ form_end(form) }}
+
+{% endblock %}

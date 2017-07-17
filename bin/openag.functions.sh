@@ -11,7 +11,6 @@ Docker names are:
  * geocoder
  * oipa
  * dportal
- * classifier (only runs if system memory >= 32gb)
  * manager
 
 h   Print help
@@ -33,6 +32,10 @@ update
     Pulls the updated git repo.
 restart
     stop and start
+reset
+    Where possible clean out the data store.  Currently only D-Portal supports this
+import
+    Import data into the specified docker
 EOF
 }
 
@@ -83,49 +86,12 @@ function start_docker {
     echo "$NAME already running"
 }
 
-function run_openag_manager {
-    docker run -it --link openag_dportal --link openag_oipa --link openag_geocoder --link openag_cove 8a045896c67e /bin/bash
-}
-
 function run_openag_nerserver {
     docker run \
         --name openag_nerserver \
+        -p 9000:9000 \
         -dt \
-        zmarty/stanford-ner-server
-}
-
-function run_openag_redis {
-    docker run \
-        --name openag_redis \
-        -v $PERSIST_REDIS:/data \
-        -dt \
-        redis redis-server \
-        --appendonly yes
-}
-
-function run_openag_pgsql {
-    docker run \
-        -dt \
-        -e POSTGRES_PASSWORD=oipa \
-        -e POSTGRES_USER=oipa \
-        -e PGDATA=/var/lib/postgresql/data/pgdata \
-        -e POSTGRES_DB=oipa \
-        -v $PERSIST_PGSQL:/var/lib/postgresql/data/pgdata \
-        --name openag_pgsql \
-        postgres
-}
-
-function run_openag_mysql {
-    if [ -z $MYSQL_ROOT_PASSWORD ]; then
-        echo "Mysql docker password not set. Either enter here or ctrl-c and set it in ~/.openegrc"
-        read MYSQL_ROOT_PASSWORD
-    fi
-    docker run \
-        -td \
-        -e MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD \
-        -v $PERSIST_MYSQL:/var/lib/mysql \
-        --name openag_mysql \
-        mysql
+        openagdata/nerserver
 }
 
 function run_openag_cove {
@@ -134,6 +100,7 @@ function run_openag_cove {
         -p 8008:8008 \
         -p 8000:8000 \
         -v $PERSIST_COVE_MEDIA:/opt/cove/media \
+        -v $PERSIST_COVE_UPLOAD:/opt/cove/upload \
         --name openag_cove \
         openagdata/cove
 }
@@ -148,6 +115,11 @@ function run_openag_autogeocoder {
 }
 
 function run_openag_geocoder {
+    set -e
+    mkdir -p $PERSIST_GEO_DATA
+    mkdir -p $PERSIST_GEO_UPLOADS
+    mkdir -p $PERSIST_GEO_CONF
+    set +e
     docker run \
         -dt \
         -p 8009:8009 -p 3333:3333 \
@@ -158,45 +130,91 @@ function run_openag_geocoder {
         openagdata/geocoder
 }
 
-function run_openag_oipa {
-    run_openag_pgsql
-    run_openag_redis
-    docker run \
-        -dt \
-        -p 8010:8010 \
-        --link openag_pgsql \
-        --link openag_redis \
-        --name openag_oipa \
-        openagdata/oipa
-}
-
 function run_openag_dportal {
     docker run \
         -dt \
         -p 1408:1408 -p 8011:8011 \
         --name openag_dportal \
+        -v $PERSIST_DPORTAL_CACHE:/opt/D-Portal/dstore/cache \
         openagdata/dportal
 }
 
-function run_openag_classifier {
-    run_openag_mysql
-    docker run \
-        -e MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD} \
-        -p 8013:8013 \
-        -p 9091:9091 \
-        --link openag_mysql \
-        -v openag-claissifier-data:/opt/autocoder/src/model/clf_data \
-        -dt \
-        --name openag_classisifer \
-        openagdata/classifier
+function data_reset {
+    if [ "$DOCKER" == 'dportal' ]; then
+        docker exec openag_dportal /bin/bash /opt/D-Portal/bin/dstore_reset
+    else
+        echo Unsupported action $2 for $DOCKER
+    fi
 }
 
-function run_openag_master {
-    docker run \
-        -d \
-        -p 7080:80 \
-        --name openag_master \
-        tobybatch/openag
+function data_import {
+    DOCKER=$1
+    FILE=$2
+
+    if [ -z "$DOCKER" ] || [ -z "$FILE" ]; then
+        echo $USAGE
+        exit 1
+    fi
+
+    if [ ! -e "$FILE" ]; then
+        echo Cannot locate file $FILE
+        exit 1
+    fi
+
+    if [ "$DOCKER" == 'cove' ]; then
+        cp $FILE $PERSIST_COVE_UPLOAD/$(basename $FILE)
+        UPLOAD_FOLDER=$(docker exec -ti openag_$DOCKER python manage.py upload /opt/cove/upload/$(basename $FILE))
+        echo $UPLOAD_FOLDER
+    elif [ "$DOCKER" == 'dportal' ]; then
+        cp $FILE $PERSIST_DPORTAL_CACHE/$(basename $FILE)
+        docker exec openag_dportal /bin/bash /opt/D-Portal/bin/dstore_import_cache
+    else
+        echo Unsupported action $3 for $DOCKER
+    fi
 }
 
+function openag_install_message {
+    echo "openag not installed.  Run 'sudo openag install'"
+    echo "or follow the hand install instructions at"
+    echo "https://github.com/neontribe/AG/blob/develop/INSTALL.md"
+}
 
+function openag_install {
+    set -e
+    ROOTUID="0"
+    if [ "$(id -u)" -ne "$ROOTUID" ] ; then
+        openag_install_message
+        exit 1
+    fi
+
+    if [ -e "$OAGCONF" ]; then
+       echo "Configuration already exists at $OAGCONF"
+       echo "Refusing to overwrite"
+       exit 1
+    fi
+
+    mkdir -p $(dirname $OAGCONF)
+    mkdir -p $OAGLIB
+
+    echo "Creating openag default config:"
+    cat <<EOF > $OAGCONF
+export PERSIST_COVE_MEDIA=$OAGLIB/cove/media
+export PERSIST_COVE_UPLOAD=$OAGLIB/cove/upload
+export PERSIST_GEO_DATA=$OAGLIB/geocoder/data
+export PERSIST_GEO_UPLOADS=$OAGLIB/geocoder/uploads
+export PERSIST_GEO_CONF=$OAGLIB/geocoder/conf
+export PERSIST_DPORTAL_CACHE=$OAGLIB/dportal
+EOF
+    source /usr/local/etc/openag.conf
+
+    for path in $PERSIST_COVE_MEDIA $PERSIST_COVE_UPLOAD $PERSIST_GEO_DATA $PERSIST_GEO_UPLOADS $PERSIST_GEO_CONF $PERSIST_DPORTAL_CACHE; do
+        if [ ! -d "$path" ]; then
+            mkdir -p $path
+        fi
+    done
+
+    if [ ! -f "$PERSIST_GEO_CONF/settings.json" ]; then
+        wget -O $PERSIST_GEO_CONF/settings.json https://raw.githubusercontent.com/neontribe/AG/develop/geocoder/conf/settings.json
+    fi
+    set +e
+}

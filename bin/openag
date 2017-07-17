@@ -1,13 +1,11 @@
 #!/bin/bash
 
-USAGE="$0 [-v] [-h] [status|start|stop|destroy|restart]"
+USAGE="$0 [-v] [-h] [status|start|stop|destroy|restart|reset|import] [[docker]...]"
+OAGLIB=/usr/local/lib/openag
+OAGCONF=/usr/local/etc/openag.conf
 
-#############
-# FUNCTIONS #
-#############
-
-source $HOME/.openagrc
 source $(dirname $0)/openag.functions.sh
+source /usr/local/etc/openag.conf
 
 ############################
 # Check config and folders #
@@ -20,47 +18,15 @@ if [ "$?" != 0 ]; then
     exit 1
 fi
 
-OAGHOME=$HOME/.openag
-OAGCONF=$OAGHOME/openag.conf
-
-# If we don't have a home then create it
-if [ ! -d "$OAGHOME" ]; then
-    echo "Creating openag home:"
-    echo "    -> $OAGHOME"
-    mkdir -p $OAGHOME
+# Special case `openag install`
+if [ "$1" == "install" ]; then
+    openag_install
+    exit 0
 fi
 
-# If we don't have default config write some
-if [ ! -f "$OAGCONF" ]; then
-    echo "Creating openag default config:"
-    echo "    -> $OAGCONF"
-    cat <<EOF > $OAGCONF
-
-# These locations set where data should be persisted to. If you change these
-# you need to delete the tmux.conf file above, or edit it.
-PERSIST_DIR=\$OAGHOME/data
-PERSIST_COVE_MEDIA=\$PERSIST_DIR/cove/media
-PERSIST_GEO_DATA=\$PERSIST_DIR/geocoder/data
-PERSIST_GEO_UPLOADS=\$PERSIST_DIR/geocoder/uploads
-PERSIST_GEO_CONF=\$PERSIST_DIR/geocoder/conf
-PERSIST_MYSQL=\$PERSIST_DIR/mysql
-PERSIST_PGSQL=\$PERSIST_DIR/pgsql
-PERSIST_REDIS=\$PERSIST_DIR/redis
-PERSIST_CLASSIFIER=\$PERSIST_DIR/classifier
-EOF
-fi
-
-# Import default config
-source $OAGCONF
-
-for path in $PERSIST_COVE_MEDIA $PERSIST_GEO_DATA $PERSIST_GEO_UPLOADS $PERSIST_GEO_CONF $PERSIST_MYSQL $PERSIST_PGSQL $PERSIST_REDIS $PERSIST_CLASSIFIER; do
-    if [ ! -d "$path" ]; then
-        mkdir -p $path
-    fi
-done
-
-if [ ! -f "$PERSIST_GEO_CONF/settings.json" ]; then
-    wget -O $PERSIST_GEO_CONF/settings.json https://raw.githubusercontent.com/neontribe/AG/develop/geocoder/conf/settings.json
+if [ ! -e "$OAGCONF" ]; then
+   openag_install_message
+   exit 1
 fi
 
 #####################
@@ -82,15 +48,9 @@ if [ -z "$ACTION" ]; then
     ACTION='status'
 fi
 
-if [ $ACTION != 'status' ] && [ $ACTION != 'start' ] && [ $ACTION != 'stop' ] && [ $ACTION != 'restart' ] && [ $ACTION != 'destroy' ] && [ $ACTION != 'update' ]; then
+if [ $ACTION != 'status' ] && [ $ACTION != 'start' ] && [ $ACTION != 'stop' ] && [ $ACTION != 'restart' ] && [ $ACTION != 'destroy' ] && [ $ACTION != 'update' ] && [ $ACTION != 'reset' ] && [ $ACTION != 'import' ]; then
 	echo $USAGE
 	exit 1;
-fi
-
-if [ -z "$MYSQL_ROOT_PASSWORD" ]; then
-    echo "Mysql root password is not set."
-    echo "echo 'export MYSQL_ROOT_PASSWORD=somemysqlpassword' > ~/.openagrc"
-    exit 1
 fi
 
 ###########
@@ -112,13 +72,7 @@ if [ -z "$IDS" ]; then
 fi
 
 if [ -z "$DOCKERS" ]; then
-    DOCKERS="mysql pgsql redis cove geocoder oipa dportal master"
-    SYSMEM=$(free|awk '/^Mem:/{print $2}')
-    if [ "$SYSMEM" -lt 33554432 ]; then
-        echo "Insufficient memory to run the classifier"
-    else
-        DOCKERS="$DOCKERS classifier"
-    fi
+    DOCKERS="cove geocoder autogeocoder dportal"
 fi
 
 if [ "0" != "$VERBOSE" ]; then
@@ -137,6 +91,10 @@ case $ACTION in
         destroy_dockers $IDS;;
     update)
         update_dockers $IDS;;
+    reset)
+        data_reset $@;;
+    import)
+        data_import $DOCKERS $@;;
     restart)
         stop_dockers
         start_dockers;;

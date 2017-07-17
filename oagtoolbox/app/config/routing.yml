@@ -1,0 +1,4 @@
+oag:
+    resource: "@OagBundle/Controller/"
+    type:     annotation
+    prefix:   /
