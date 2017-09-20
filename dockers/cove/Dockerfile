@@ -10,8 +10,8 @@ RUN apt-get update && \
     apt-get -y install git vim htop gettext && \
     git clone https://github.com/OpenDataServices/cove.git /opt/cove && \
     git fetch && \
-    pip3 install cython && \
     pip3 install -r requirements_iati.txt && \
+    pip3 install gunicorn && \
     python manage.py migrate && \
     python manage.py compilemessages && \
     mkdir -p media && \
@@ -20,7 +20,7 @@ RUN apt-get update && \
 
 COPY process.xml.sh /usr/local/bin/process.xml.sh
 COPY process.csv.sh /usr/local/bin/process.csv.sh
-RUN echo "#!/bin/bash\n\nif [ ! -z \"\$PROCESS_DATA\" ]; then\n/usr/local/bin/process.sh\nexit \$?\nfi\n\n/usr/local/bin/update.sh\ncd /opt/cove\nexport DJANGO_SETTINGS_MODULE=$DJANGO_SETTINGS_MODULE\npython3 manage.py migrate\npython3 manage.py compilemessages\npython3 manage.py runserver 0.0.0.0:8000" > /usr/local/bin/startup.sh
+RUN echo "#!/bin/bash\n\nif [ ! -z \"\$PROCESS_DATA\" ]; then\n/usr/local/bin/process.sh\nexit \$?\nfi\n\n/usr/local/bin/update.sh\ncd /opt/cove\nexport DJANGO_SETTINGS_MODULE=$DJANGO_SETTINGS_MODULE\npython3 manage.py migrate\npython3 manage.py compilemessages\ngunicorn cove_iati.wsgi -b 0.0.0.0:8000" > /usr/local/bin/startup.sh
 
 RUN chmod 777 /usr/local/bin/*.sh
 
